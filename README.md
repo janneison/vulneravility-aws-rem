@@ -16,6 +16,7 @@ La función espera eventos provenientes de Security Hub (por ejemplo desde un Cu
 - `lambda/lambda_function.py`: lógica de remediación.
 - `lambda/requirements.txt`: dependencias del runtime.
 - `terraform/main.tf`: despliegue de la función con IAM mínimo necesario.
+- `terraform/examples/non_compliant`: ejemplo de recursos intencionalmente no conformes para pruebas.
 
 ## Despliegue con Terraform
 
@@ -35,6 +36,22 @@ Variables útiles:
 - `dynamodb_scaling_role_arn`: si usas un rol de Application Auto Scaling existente, proporciónalo aquí.
 
 El paquete Lambda se genera automáticamente con `archive_file` a partir del contenido de `../lambda`.
+
+### Recursos de prueba no conformes
+
+Para validar la remediación se incluye un ejemplo en `terraform/examples/non_compliant` que crea:
+
+- Una tabla DynamoDB en modo aprovisionado sin autoescalado, PITR ni protección de eliminación.
+- Un tema SNS y una cola SQS con políticas públicas (`Principal = "*"`).
+- Una clave KMS con política que permite acceso público.
+
+> **Advertencia:** estos recursos son inseguros y solo deben crearse en cuentas de prueba. Para desplegarlos:
+
+```bash
+cd terraform/examples/non_compliant
+terraform init
+terraform apply -auto-approve
+```
 
 ## Funcionamiento
 
