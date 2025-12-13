@@ -13,6 +13,12 @@ provider "aws" {
   region = var.aws_region
 }
 
+variable "enable_poc_role" {
+  description = "Create an IAM role with permissions to trigger remediation during the PoC."
+  type        = bool
+  default     = true
+}
+
 variable "aws_region" {
   description = "Región donde se crean los recursos no conformes para pruebas."
   type        = string
@@ -111,6 +117,56 @@ resource "aws_kms_key" "public_policy" {
       }
     ]
   })
+}
+
+resource "aws_iam_role" "poc_runner" {
+  count = var.enable_poc_role ? 1 : 0
+
+  name = "noncompliant-poc-runner"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "poc_runner" {
+  count = var.enable_poc_role ? 1 : 0
+
+  name = "noncompliant-poc-policy"
+  role = aws_iam_role.poc_runner[0].id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["lambda:InvokeFunction", "lambda:InvokeAsync"]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["events:PutEvents"]
+        Resource = "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:event-bus/default"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["securityhub:GetFindings", "securityhub:BatchImportFindings"]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+output "poc_runner_role_arn" {
+  description = "IAM role ARN que se puede usar para disparar la remediación durante la POC."
+  value       = var.enable_poc_role ? aws_iam_role.poc_runner[0].arn : null
 }
 
 output "dynamodb_table_name" {

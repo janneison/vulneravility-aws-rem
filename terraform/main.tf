@@ -29,6 +29,12 @@ variable "lambda_name" {
   default     = "security-hub-remediator"
 }
 
+variable "enable_poc_role" {
+  description = "Create an IAM role with minimal permissions to trigger the PoC manually."
+  type        = bool
+  default     = true
+}
+
 variable "default_min_capacity" {
   description = "Minimum provisioned capacity for DynamoDB autoscaling targets."
   type        = number
@@ -52,6 +58,8 @@ data "archive_file" "lambda_zip" {
   source_dir  = "${path.module}/../lambda"
   output_path = "${path.module}/build/lambda.zip"
 }
+
+data "aws_caller_identity" "current" {}
 
 resource "aws_iam_role" "lambda_exec" {
   name               = "${var.lambda_name}-role"
@@ -151,4 +159,54 @@ data "aws_iam_policy_document" "lambda_permissions" {
 
 output "lambda_function_name" {
   value = aws_lambda_function.remediator.function_name
+}
+
+resource "aws_iam_role" "poc_runner" {
+  count = var.enable_poc_role ? 1 : 0
+
+  name = "${var.lambda_name}-poc-runner"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "poc_runner" {
+  count = var.enable_poc_role ? 1 : 0
+
+  name = "${var.lambda_name}-poc-policy"
+  role = aws_iam_role.poc_runner[0].id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["securityhub:GetFindings", "securityhub:BatchUpdateFindings"]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["lambda:InvokeFunction", "lambda:InvokeAsync"]
+        Resource = aws_lambda_function.remediator.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["events:PutEvents"]
+        Resource = "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:event-bus/default"
+      }
+    ]
+  })
+}
+
+output "poc_runner_role_arn" {
+  description = "IAM role ARN with minimal permissions to trigger the remediation PoC."
+  value       = var.enable_poc_role ? aws_iam_role.poc_runner[0].arn : null
 }
